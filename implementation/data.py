@@ -8,10 +8,12 @@ import numpy as np
 RANDOM_SEED = 228
 
 class LRandHR(torch.utils.data.Dataset):
-    def __init__(self, lr_dir, hr_dir, transform):
-        self.lr_dir = lr_dir  # example: 'data/LR_train'
+    def __init__(self, lr_dir, hr_dir, lr_transform, hr_transform):
+        self.lr_dir = lr_dir  # example: 'data/LR_train/'
         self.hr_dir = hr_dir
-        self.transform = transform
+
+        self.lr_transform = lr_transform
+        self.hr_transform = hr_transform
 
         self.lr_pathes = []  # pathes for all LR images
         self.hr_pathes = []  # pathes for all HR images
@@ -30,17 +32,17 @@ class LRandHR(torch.utils.data.Dataset):
                                  random_state=RANDOM_SEED)
 
     def __getitem__(self, idx):
-        lr_img = self.lr_pathes[idx % len(self.lr_pathes)]
-        hr_img = self.hr_pathes[idx % len(self.hr_pathes)]
+        lr_img_name = self.lr_pathes[idx % len(self.lr_pathes)]
+        hr_img_name = self.hr_pathes[idx % len(self.hr_pathes)]
 
-        lr_img = cv2.imread(lr_img)
+        lr_img = cv2.imread(self.lr_dir + lr_img_name)
         lr_img = cv2.cvtColor(lr_img, cv2.COLOR_BGR2RGB)
-        hr_img = cv2.imread(hr_img)
+
+        hr_img = cv2.imread(self.hr_dir + hr_img_name)
         hr_img = cv2.cvtColor(hr_img, cv2.COLOR_BGR2RGB)
 
         # lr_img = Image.open(lr_img)
         # hr_img = Image.open(hr_img)
-
 
         # отрисовка картиноки до аугментации
         # fig=plt.figure(figsize=(8, 8))
@@ -48,11 +50,10 @@ class LRandHR(torch.utils.data.Dataset):
         # plt.imshow(np.asarray(image))
         # image = Downscale(image, (64, 64), (101, 101))
 
-
-        if self.transform is not None:
-            lr_img = self.transform(lr_img)["image"]
-            hr_img = self.transform(hr_img)["image"]
-
+        if self.lr_transform is not None:
+            lr_img = self.lr_transform(image=lr_img)["image"]
+        if self.hr_transform is not None:
+            hr_img = self.hr_transform(image=hr_img)["image"]
 
         # отрисовка картиноки после аугментации
         #         fig.add_subplot(1, 3, 2)
@@ -67,13 +68,26 @@ class LRandHR(torch.utils.data.Dataset):
 if __name__ == '__main__':
     import albumentations as A
     import cv2
+    import matplotlib.pyplot as plt
 
-
-
-    transform = A.Compose([
-        A.RandomCrop(width=64, height=64),
+    lr_transform = A.Compose([
+        A.RandomCrop(width=32, height=32),
         A.HorizontalFlip(p=0.5),
-        A.RandomBrightnessContrast(p=0.2),
+        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5)
     ])
 
-    data = LRandHR('../DATA/LR_valid', '../DATA/DIV2K_train_HR', None)
+    hr_transform = A.Compose([
+        A.RandomCrop(width=64, height=64),
+        A.HorizontalFlip(p=0.5),
+        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5)
+    ])
+
+    data = LRandHR('../DATA/LR_valid/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
+
+    lr = data[0][0] # LR image
+    hr = data[0][1] # HR image
+
+    assert lr.shape == (32, 32, 3)
+    assert hr.shape == (64, 64, 3)
+
+    plt.imshow(lr)
