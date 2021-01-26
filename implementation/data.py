@@ -1,11 +1,8 @@
 import torch
-from sklearn.utils import shuffle
 from PIL import Image
 import os
-from os.path import join
-import numpy as np
+import cv2
 
-RANDOM_SEED = 228
 
 class LRandHR(torch.utils.data.Dataset):
     def __init__(self, lr_dir, hr_dir, lr_transform, hr_transform):
@@ -26,38 +23,25 @@ class LRandHR(torch.utils.data.Dataset):
             for filename in files:
                 self.hr_pathes.append(filename)
 
-        self.lr_pathes = shuffle(self.lr_pathes,
-                                 random_state=RANDOM_SEED)
-        self.hr_pathes = shuffle(self.hr_pathes,
-                                 random_state=RANDOM_SEED)
-
     def __getitem__(self, idx):
         lr_img_name = self.lr_pathes[idx % len(self.lr_pathes)]
         hr_img_name = self.hr_pathes[idx % len(self.hr_pathes)]
 
+        # cv2 case
         lr_img = cv2.imread(self.lr_dir + lr_img_name)
         lr_img = cv2.cvtColor(lr_img, cv2.COLOR_BGR2RGB)
 
         hr_img = cv2.imread(self.hr_dir + hr_img_name)
         hr_img = cv2.cvtColor(hr_img, cv2.COLOR_BGR2RGB)
 
+        # PIL case
         # lr_img = Image.open(lr_img)
         # hr_img = Image.open(hr_img)
-
-        # отрисовка картиноки до аугментации
-        # fig=plt.figure(figsize=(8, 8))
-        # fig.add_subplot(1, 3, 1)
-        # plt.imshow(np.asarray(image))
-        # image = Downscale(image, (64, 64), (101, 101))
 
         if self.lr_transform is not None:
             lr_img = self.lr_transform(image=lr_img)["image"]
         if self.hr_transform is not None:
             hr_img = self.hr_transform(image=hr_img)["image"]
-
-        # отрисовка картиноки после аугментации
-        #         fig.add_subplot(1, 3, 2)
-        #         plt.imshow(image)
 
         return lr_img, hr_img
 
@@ -67,8 +51,7 @@ class LRandHR(torch.utils.data.Dataset):
 
 if __name__ == '__main__':
     import albumentations as A
-    import cv2
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
     lr_transform = A.Compose([
         A.RandomCrop(width=32, height=32),
@@ -89,5 +72,6 @@ if __name__ == '__main__':
 
     assert lr.shape == (32, 32, 3)
     assert hr.shape == (64, 64, 3)
+    assert len(data) > 0
 
-    plt.imshow(lr)
+    # plt.imshow(lr)
