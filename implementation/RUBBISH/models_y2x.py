@@ -14,10 +14,15 @@ def Downscale(img, dim, sigma):
     :param target_size:
     :return:
     """
-    # todo set correct sigma and kernel size
-    blured = cv2.GaussianBlur(img, (19, 19), 0)
-    resized = cv2.resize(blured, dim, interpolation=cv2.INTER_AREA)
-
+    if len(img.shape) == 3:
+        # todo set correct sigma and kernel size
+        blured = cv2.GaussianBlur(img, (19, 19), 0)
+        resized = cv2.resize(blured, dim, interpolation=cv2.INTER_AREA)
+    else:
+        resized = []
+        for image in img:
+            blured = cv2.GaussianBlur(image, (19, 19), 0)
+            resized.append(cv2.resize(blured, dim, interpolation=cv2.INTER_AREA))
     return resized
 
 

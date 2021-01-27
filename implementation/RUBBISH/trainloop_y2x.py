@@ -1,6 +1,6 @@
 """
 Training of Generator y↓ --> x and DiscriminatorX
-(from file models.py)
+(from file discriminators.py)
 """
 
 import torch
@@ -11,15 +11,36 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from models import Discriminator, Generator, initialize_weights
 
 # Hyperparameters etc.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LEARNING_RATE = 1e-4
-BETAS = (0.5, 0.999)
+LR_SIZE = 32
+MAX_ITER = 3 * 10 ** 5
 BATCH_SIZE = 16
-IMAGE_SIZE = 32
 CHANNELS_IMG = 3
+
+
+transforms = transforms.Compose(
+    [
+        transforms.Resize(LR_SIZE),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            [0.5 for _ in range(CHANNELS_IMG)], [0.5 for _ in range(CHANNELS_IMG)]
+        ),
+        transforms.RandomHorizontalFlip(p=0.5),
+    ]
+)
+
+
+
+
+
+
+from models import Discriminator, Generator, initialize_weights
+
+# Hyperparameters etc.
+BETAS = (0.5, 0.999)
 NUM_EPOCHS = 5
 
 NOISE_DIM = 100
