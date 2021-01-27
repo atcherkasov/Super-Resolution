@@ -173,7 +173,7 @@ if __name__ == '__main__':
         A.HorizontalFlip(p=0.5),
         A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5)
     ])
-    dataset = LRandHR('../DATA/LR_valid/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
+    dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     train(models, dataloader, optimizers, coef, MAX_ITER, device="cuda:0")
