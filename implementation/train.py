@@ -47,7 +47,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, device="cuda:0",
     cur_iter = 0
     while cur_iter < max_iter:
         for low_res, high_res in tqdm(train_dataloader, position=0):
-            clean_lr = Downscale(low_res, (32, 32), None)
+            clean_lr = Downscale(high_res, (32, 32), None)
             clean_lr = clean_lr.to(device)
             low_res, high_res = low_res.to(device), high_res.to(device)
 
