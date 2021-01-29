@@ -30,7 +30,7 @@ from args import rcan_args
 
 
 
-def train(models, train_dataloader, optimizers, coef, max_iter, device="cuda:0", logs=''):
+def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device="cuda:0", logs=''):
     for model in models.values():
         model.train()
 
@@ -40,14 +40,30 @@ def train(models, train_dataloader, optimizers, coef, max_iter, device="cuda:0",
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
 
-    fixed_lr = next(iter(train_dataloader))[0].to(device)
+    for low_res, _ in train_dataloader:
+        low_res = torch.reshape(low_res, (low_res.shape[0], low_res.shape[3],
+                                            low_res.shape[1], low_res.shape[2]))
+        fixed_lr = low_res.to(device)
+        break
 
     tbord_step = 0
-
     cur_iter = 0
     while cur_iter < max_iter:
         for low_res, high_res in tqdm(train_dataloader, position=0):
-            clean_lr = Downscale(high_res, (32, 32), None)
+            hr = high_res.numpy()
+            clean_lr = []
+            for img in hr:
+                clean_lr.append(Downscale(img, (32, 32)))
+
+            clean_lr = torch.tensor(clean_lr)
+            # print(torch.max(clean_lr))
+            # print(torch.min(clean_lr))
+            clean_lr = torch.reshape(clean_lr, (clean_lr.shape[0], clean_lr.shape[3],
+                                                clean_lr.shape[1], clean_lr.shape[2]))
+            low_res = torch.reshape(low_res, (low_res.shape[0], low_res.shape[3],
+                                              low_res.shape[1], low_res.shape[2]))
+            high_res = torch.reshape(high_res, (high_res.shape[0], high_res.shape[3],
+                                                high_res.shape[1], high_res.shape[2]))
             clean_lr = clean_lr.to(device)
             low_res, high_res = low_res.to(device), high_res.to(device)
 
@@ -67,11 +83,17 @@ def train(models, train_dataloader, optimizers, coef, max_iter, device="cuda:0",
             L_rec = L1(upscale_y, high_res)
 
             ### counting generator's loss
-            disc_x_fake = MSE(models['Dx'](fake_x), torch.zeros(len(fake_x)))
-            disc_y_fake = MSE(models['Dy'](fake_y), torch.zeros(len(fake_y)))
-            disc_U_fake = MSE(models['Du'](upscale_y), torch.zeros(len(upscale_y)))
+            disc_x_fake = models['Dx'](fake_x)
+            disc_x_fake_loss = MSE(disc_x_fake, torch.zeros(disc_x_fake.shape))
+
+            disc_y_fake = models['Dy'](fake_y)
+            disc_y_fake_loss = MSE(disc_y_fake, torch.zeros(disc_y_fake.shape))
+
+            disc_U_fake = models['Du'](upscale_y)
+            disc_U_fake_loss = MSE(disc_U_fake, torch.zeros(disc_U_fake.shape))
+
             generator_loss = L_cyc + L_idt + L_rec + \
-                             disc_x_fake + disc_y_fake + coef['gamma'] * disc_U_fake # todo добавить L_geo
+                             disc_x_fake_loss + disc_y_fake_loss + coef['gamma'] * disc_U_fake_loss # todo добавить L_geo
 
             ### backward on generator
             models['Gyx'].zero_grad()
@@ -83,17 +105,39 @@ def train(models, train_dataloader, optimizers, coef, max_iter, device="cuda:0",
             optimizers['Uyy'].step()
 
             ### counting discriminator's loss
-            disc_x_real = MSE(models['Dx'](low_res), torch.ones(len(low_res)))
-            disc_y_real = MSE(models['Dy'](clean_lr), torch.ones(len(clean_lr)))
-            disc_U_real = MSE(models['Du'](upscale_x), torch.ones(len(upscale_x)))
-            discriminator_loss = disc_x_fake + disc_x_real + disc_y_fake + disc_y_real + \
-                         coef['gamma'] * disc_U_fake + coef['gamma'] * disc_U_real
+            # on real
+            disc_x_real = models['Dx'](low_res)
+            disc_x_real_loss = MSE(disc_x_real, torch.ones(disc_x_real.shape))
+
+            disc_y_real = models['Dy'](clean_lr)
+            disc_y_real_loss = MSE(disc_y_real, torch.ones(disc_y_real.shape))
+
+            disc_U_real = models['Du'](upscale_x)
+            disc_U_real_loss = MSE(disc_U_real, torch.ones(disc_U_real.shape))
+
+            # on fake
+            disc_x_fake = models['Dx'](fake_x.detach())
+            disc_x_fake_loss = MSE(disc_x_fake, torch.zeros(disc_x_fake.shape))
+
+            disc_y_fake = models['Dy'](fake_y.detach())
+            disc_y_fake_loss = MSE(disc_y_fake, torch.zeros(disc_y_fake.shape))
+
+            disc_U_fake = models['Du'](upscale_y.detach())
+            disc_U_fake_loss = MSE(disc_U_fake, torch.zeros(disc_U_fake.shape))
+
+            ''' это работает'''
+            discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
+                                 coef['gamma'] * disc_U_fake_loss
+            '''а это -- нет'''
+            # discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
+            #                      coef['gamma'] * disc_U_real_loss + coef['gamma'] * disc_U_fake_loss
 
             ### backward on discriminator
             models['Dx'].zero_grad()
             models['Dy'].zero_grad()
             models['Du'].zero_grad()
-            discriminator_loss.backward()
+            with torch.autograd.set_detect_anomaly(True):
+                discriminator_loss.backward()       # добавление лосса даёт ошибку вот тут
             optimizers['Dx'].step()
             optimizers['Dy'].step()
             optimizers['Du'].step()
@@ -144,12 +188,15 @@ if __name__ == '__main__':
     args_2 = rcan_args()
     models['Gxy'] = RCAN(args_2)
 
-    args_3 = rcan_args(n_resblocks=20, res_scale=2)
+    args_3 = rcan_args(n_resblocks=20, scale=[2])
     models['Uyy'] = RCAN(args_3)
 
-    models['Dx'] = NLayerDiscriminator(3, n_layers=5)
-    models['Dy'] = NLayerDiscriminator(3, n_layers=5)
-    models['Du'] = NLayerDiscriminator(3, n_layers=5)
+    # todo что-то тут не совпадает со статьёй. Написан, что n_layers=5,
+    #  но тут челы говорят, что нужно меньше слоёв (работает только с n_layers=2)
+    #  https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/776
+    models['Dx'] = NLayerDiscriminator(3, n_layers=2)
+    models['Dy'] = NLayerDiscriminator(3, n_layers=2)
+    models['Du'] = NLayerDiscriminator(3, n_layers=4)
 
     # OPTIMIZERS
     optimizers = {}
@@ -165,15 +212,19 @@ if __name__ == '__main__':
     lr_transform = A.Compose([
         A.RandomCrop(width=LR_PATCH, height=LR_PATCH),
         A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5)
+        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5),
+        A.Normalize(mean=(0.485, 0.456, 0.406),
+                    std=(0.229, 0.224, 0.225), p=1)
     ])
 
     hr_transform = A.Compose([
         A.RandomCrop(width=HR_PATCH, height=HR_PATCH),
         A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5)
+        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5),
+        A.Normalize(mean=(0.485, 0.456, 0.406),
+                    std=(0.229, 0.224, 0.225), p=1)
     ])
     dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    train(models, dataloader, optimizers, coef, MAX_ITER, device="cuda:0")
+    train(models, dataloader, optimizers, coef, MAX_ITER, dataset, device=device)
