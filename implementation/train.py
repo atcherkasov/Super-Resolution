@@ -81,6 +81,10 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             L_idt = coef['idt'] * L1(fake_y, clean_lr)
             # L_geo = coef['geo'] * torch.ones(len(L_idt))  # todo придумать как это нормально реализовать
             L_rec = L1(upscale_y, high_res)
+            
+            for param in models['Dx'].parameters():
+                param.requires_grad = False
+            # TODO all discriminators
 
             ### counting generator's loss
             disc_x_fake = models['Dx'](fake_x)
@@ -103,16 +107,20 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             optimizers['Gyx'].step()
             optimizers['Gxy'].step()
             optimizers['Uyy'].step()
+            
+            for param in models['Dx'].parameters():
+                param.requires_grad = True
+            # TODO: all discriminators
 
             ### counting discriminator's loss
             # on real
-            disc_x_real = models['Dx'](low_res)
+            disc_x_real = models['Dx'](low_res.detach())
             disc_x_real_loss = MSE(disc_x_real, torch.ones(disc_x_real.shape))
 
-            disc_y_real = models['Dy'](clean_lr)
+            disc_y_real = models['Dy'](clean_lr.detach())
             disc_y_real_loss = MSE(disc_y_real, torch.ones(disc_y_real.shape))
 
-            disc_U_real = models['Du'](upscale_x)
+            disc_U_real = models['Du'](upscale_x.detach())
             disc_U_real_loss = MSE(disc_U_real, torch.ones(disc_U_real.shape))
 
             # on fake
@@ -126,11 +134,11 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             disc_U_fake_loss = MSE(disc_U_fake, torch.zeros(disc_U_fake.shape))
 
             ''' это работает'''
-            discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
-                                 coef['gamma'] * disc_U_fake_loss
+#             discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
+#                                  coef['gamma'] * disc_U_fake_loss
             '''а это -- нет'''
-            # discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
-            #                      coef['gamma'] * disc_U_real_loss + coef['gamma'] * disc_U_fake_loss
+            discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
+                                 coef['gamma'] * disc_U_real_loss + coef['gamma'] * disc_U_fake_loss
 
             ### backward on discriminator
             models['Dx'].zero_grad()
