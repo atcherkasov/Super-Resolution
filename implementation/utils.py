@@ -1,8 +1,10 @@
 from typing import *
 import cv2
+import torch
 
 
-def Downscale(img, target_dim: Tuple[int, int], kernel_size: Tuple[int, int], scale_factor: float = 2.0):
+def Downscale(img, target_dim: Tuple[int, int],
+              kernel_size: Tuple[int, int] = (11, 11), scale_factor: float = 2.0):
     """
     Downscaling source/target y ∈ Y domain --> y↓ (LR img, same dimention as x)
     :param img:
