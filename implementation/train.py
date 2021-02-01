@@ -41,8 +41,10 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
     MSE = nn.MSELoss()
 
     for low_res, _ in train_dataloader:
-        low_res = torch.reshape(low_res, (low_res.shape[0], low_res.shape[3],
-                                            low_res.shape[1], low_res.shape[2]))
+        low_res = low_res.permute(0, 3, 1, 2).contiguous()
+        # (B, H, W, C)
+        # (B * H * W *C)
+        # (B, C, H, W)
         fixed_lr = low_res.to(device)
         break
 
@@ -58,12 +60,9 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             clean_lr = torch.tensor(clean_lr)
             # print(torch.max(clean_lr))
             # print(torch.min(clean_lr))
-            clean_lr = torch.reshape(clean_lr, (clean_lr.shape[0], clean_lr.shape[3],
-                                                clean_lr.shape[1], clean_lr.shape[2]))
-            low_res = torch.reshape(low_res, (low_res.shape[0], low_res.shape[3],
-                                              low_res.shape[1], low_res.shape[2]))
-            high_res = torch.reshape(high_res, (high_res.shape[0], high_res.shape[3],
-                                                high_res.shape[1], high_res.shape[2]))
+            clean_lr = clean_lr.permute(0, 3, 1, 2).contiguous()
+            low_res = low_res.permute(0, 3, 1, 2).contiguous()
+            high_res = high_res.permute(0, 3, 1, 2).contiguous()
             clean_lr = clean_lr.to(device)
             low_res, high_res = low_res.to(device), high_res.to(device)
 
@@ -79,7 +78,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             ### counting L1 losses
             L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr)
             L_idt = coef['idt'] * L1(fake_y, clean_lr)
-            # L_geo = coef['geo'] * torch.ones(len(L_idt))  # todo придумать как это нормально реализовать
+            # L_geo = coef['geo'] * torch.ones_like(len(L_idt))  # todo придумать как это нормально реализовать
             L_rec = L1(upscale_y, high_res)
             
             for param in models['Dx'].parameters():
@@ -88,13 +87,13 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
 
             ### counting generator's loss
             disc_x_fake = models['Dx'](fake_x)
-            disc_x_fake_loss = MSE(disc_x_fake, torch.zeros(disc_x_fake.shape))
+            disc_x_fake_loss = MSE(disc_x_fake, torch.zeros_like(disc_x_fake))
 
             disc_y_fake = models['Dy'](fake_y)
-            disc_y_fake_loss = MSE(disc_y_fake, torch.zeros(disc_y_fake.shape))
+            disc_y_fake_loss = MSE(disc_y_fake, torch.zeros_like(disc_y_fake))
 
             disc_U_fake = models['Du'](upscale_y)
-            disc_U_fake_loss = MSE(disc_U_fake, torch.zeros(disc_U_fake.shape))
+            disc_U_fake_loss = MSE(disc_U_fake, torch.zeros_like(disc_U_fake))
 
             generator_loss = L_cyc + L_idt + L_rec + \
                              disc_x_fake_loss + disc_y_fake_loss + coef['gamma'] * disc_U_fake_loss # todo добавить L_geo
@@ -114,24 +113,24 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
 
             ### counting discriminator's loss
             # on real
-            disc_x_real = models['Dx'](low_res.detach())
-            disc_x_real_loss = MSE(disc_x_real, torch.ones(disc_x_real.shape))
+            disc_x_real = models['Dx'](low_res)
+            disc_x_real_loss = MSE(disc_x_real, torch.ones_like(disc_x_real))
 
-            disc_y_real = models['Dy'](clean_lr.detach())
-            disc_y_real_loss = MSE(disc_y_real, torch.ones(disc_y_real.shape))
+            disc_y_real = models['Dy'](clean_lr)
+            disc_y_real_loss = MSE(disc_y_real, torch.ones_like(disc_y_real))
 
             disc_U_real = models['Du'](upscale_x.detach())
-            disc_U_real_loss = MSE(disc_U_real, torch.ones(disc_U_real.shape))
+            disc_U_real_loss = MSE(disc_U_real, torch.ones_like(disc_U_real))
 
             # on fake
             disc_x_fake = models['Dx'](fake_x.detach())
-            disc_x_fake_loss = MSE(disc_x_fake, torch.zeros(disc_x_fake.shape))
+            disc_x_fake_loss = MSE(disc_x_fake, torch.zeros_like(disc_x_fake))
 
             disc_y_fake = models['Dy'](fake_y.detach())
-            disc_y_fake_loss = MSE(disc_y_fake, torch.zeros(disc_y_fake.shape))
+            disc_y_fake_loss = MSE(disc_y_fake, torch.zeros_like(disc_y_fake))
 
             disc_U_fake = models['Du'](upscale_y.detach())
-            disc_U_fake_loss = MSE(disc_U_fake, torch.zeros(disc_U_fake.shape))
+            disc_U_fake_loss = MSE(disc_U_fake, torch.zeros_like(disc_U_fake))
 
             ''' это работает'''
 #             discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
@@ -206,6 +205,9 @@ if __name__ == '__main__':
     models['Dy'] = NLayerDiscriminator(3, n_layers=2)
     models['Du'] = NLayerDiscriminator(3, n_layers=4)
 
+    for name in models:
+        models[name] = models[name].to(device)
+
     # OPTIMIZERS
     optimizers = {}
     optimizers['Gyx'] = Adam(models['Gyx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
@@ -233,6 +235,6 @@ if __name__ == '__main__':
                     std=(0.229, 0.224, 0.225), p=1)
     ])
     dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=16)
 
     train(models, dataloader, optimizers, coef, MAX_ITER, dataset, device=device)
