@@ -5,7 +5,6 @@ import torch.nn as nn
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
 
-import cv2
 from tqdm import tqdm
 
 from data import LRandHR
@@ -28,38 +27,40 @@ from args import rcan_args
 #     geo_mean_inference = torch.tensor(res)
 
 
+def interval_mapping(image, from_min, from_max, to_min, to_max):
+    # map values from [from_min, from_max] to [to_min, to_max]
+    # image: input array
+    from_range = from_max - from_min
+    to_range = to_max - to_min
+    scaled = torch.tensor((image - from_min) / float(from_range), dtype=torch.float)
+    return to_min + (scaled * to_range)
 
 
-def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device="cuda:0", logs=''):
+def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
+          device=torch.device("cuda:0"), logs='', PATH='MODELS'):
     for model in models.values():
         model.train()
 
-    writer_lr = SummaryWriter(f"logs/" + logs + '/LR')
-    writer_hr = SummaryWriter(f"logs/" + logs + '/HR')
+    writer = SummaryWriter(f"logs/" + logs)
+    # writer_hr = SummaryWriter(f"logs/" + logs + '/HR')
 
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
-
-    for low_res, _ in train_dataloader:
-        low_res = low_res.permute(0, 3, 1, 2).contiguous()
-        # (B, H, W, C)
-        # (B * H * W *C)
-        # (B, C, H, W)
-        fixed_lr = low_res.to(device)
-        break
 
     tbord_step = 0
     cur_iter = 0
     while cur_iter < max_iter:
         for low_res, high_res in tqdm(train_dataloader, position=0):
-            hr = high_res.numpy()
-            clean_lr = []
-            for img in hr:
-                clean_lr.append(Downscale(img, (32, 32)))
 
-            clean_lr = torch.tensor(clean_lr)
-            # print(torch.max(clean_lr))
-            # print(torch.min(clean_lr))
+
+
+            # hr = high_res.numpy()
+            # clean_lr = []
+            # for img in hr:
+            #     clean_lr.append(Downscale(img, (32, 32)))
+            #
+            # clean_lr = torch.tensor(clean_lr)
+
             clean_lr = clean_lr.permute(0, 3, 1, 2).contiguous()
             low_res = low_res.permute(0, 3, 1, 2).contiguous()
             high_res = high_res.permute(0, 3, 1, 2).contiguous()
@@ -78,12 +79,15 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             ### counting L1 losses
             L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr)
             L_idt = coef['idt'] * L1(fake_y, clean_lr)
-            # L_geo = coef['geo'] * torch.ones_like(len(L_idt))  # todo придумать как это нормально реализовать
+            L_geo = coef['geo'] * torch.ones_like(L_idt)  # todo придумать как это нормально реализовать
             L_rec = L1(upscale_y, high_res)
             
             for param in models['Dx'].parameters():
                 param.requires_grad = False
-            # TODO all discriminators
+            for param in models['Dy'].parameters():
+                param.requires_grad = False
+            for param in models['Du'].parameters():
+                param.requires_grad = False
 
             ### counting generator's loss
             disc_x_fake = models['Dx'](fake_x)
@@ -109,7 +113,10 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             
             for param in models['Dx'].parameters():
                 param.requires_grad = True
-            # TODO: all discriminators
+            for param in models['Dy'].parameters():
+                param.requires_grad = True
+            for param in models['Du'].parameters():
+                param.requires_grad = True
 
             ### counting discriminator's loss
             # on real
@@ -132,10 +139,6 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             disc_U_fake = models['Du'](upscale_y.detach())
             disc_U_fake_loss = MSE(disc_U_fake, torch.zeros_like(disc_U_fake))
 
-            ''' это работает'''
-#             discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
-#                                  coef['gamma'] * disc_U_fake_loss
-            '''а это -- нет'''
             discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
                                  coef['gamma'] * disc_U_real_loss + coef['gamma'] * disc_U_fake_loss
 
@@ -148,6 +151,20 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
             optimizers['Dx'].step()
             optimizers['Dy'].step()
             optimizers['Du'].step()
+
+            ### saving models
+            if cur_iter % 10 ** 3 == 0:
+                for model in models.items():
+                    torch.save({
+                                'iter' : cur_iter,
+                                'model_state_dict' : model[1].state_dict(),
+                                'optimizer_state_dict': optimizers[model[0]].state_dict()
+                                }, f"{PATH}/{cur_iter // 10 ** 3}_{model[0]}.pth")
+                    torch.save({
+                                'iter': cur_iter,
+                                'model_state_dict': model[1].state_dict(),
+                                'optimizer_state_dict': optimizers[model[0]].state_dict()
+                                }, f"{PATH}/last_{model[0]}.pth")
 
             if cur_iter % 100 == 0:
                 print(
@@ -166,8 +183,15 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
                         upscale_x, normalize=True
                     )
 
-                    writer_lr.add_image("LR", img_grid_real, global_step=tbord_step)
-                    writer_hr.add_image("HR", img_grid_fake, global_step=tbord_step)
+                    writer.add_image("LR", interval_mapping(img_grid_real, 0.0, 1.0, 0.0, 255.0), global_step=tbord_step)
+                    writer.add_image("HR", interval_mapping(img_grid_fake, 0.0, 1.0, 0.0, 255.0), global_step=tbord_step)
+                    writer.add_scalar('Generator loss', generator_loss, global_step=tbord_step)
+                    writer.add_scalar('Discriminator loss', discriminator_loss, global_step=tbord_step)
+
+                    writer.add_scalar('Cycle loss', L_cyc, global_step=tbord_step)
+                    writer.add_scalar('Identity loss', L_idt, global_step=tbord_step)
+                    writer.add_scalar('Geometric loss', L_geo, global_step=tbord_step)
+                    writer.add_scalar('Reconstruct loss', L_rec, global_step=tbord_step)
 
                 tbord_step += 1
 
@@ -178,63 +202,114 @@ def train(models, train_dataloader, optimizers, coef, max_iter, dataset, device=
 
 if __name__ == '__main__':
     import albumentations as A
+    import os
 
     # PARAMETERS
     BATCH_SIZE=16
     LR_PATCH=32
+    LR_VAL_PATCH=256
     HR_PATCH=64
     MAX_ITER=3e5
     coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    PATH='MODELS'
 
     # MODELS
     models = {}
-    args_1 = rcan_args()
-    models['Gyx'] = RCAN(args_1)
+    optimizers = {}
+    if os.path.exists(f"{PATH}/last_{'Gyx'}.pth"):
+        checkpoint = torch.load(f"{PATH}/last_{'Gyx'}.pth")
+        models['Gyx'] = checkpoint['model_state_dict']
+        optimizers['Gyx'] = checkpoint['optimizer_state_dict']
+    else:
+        args_1 = rcan_args()
+        models['Gyx'] = RCAN(args_1)
+        optimizers['Gyx'] = Adam(models['Gyx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
-    args_2 = rcan_args()
-    models['Gxy'] = RCAN(args_2)
+    if os.path.exists(f"{PATH}/last_{'Gxy'}.pth"):
+        checkpoint = torch.load(f"{PATH}/last_{'Gxy'}.pth")
+        models['Gxy'] = checkpoint['model_state_dict']
+        optimizers['Gxy'] = checkpoint['optimizer_state_dict']
+    else:
+        args_2 = rcan_args()
+        models['Gxy'] = RCAN(args_2)
+        optimizers['Gxy'] = Adam(models['Gxy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
-    args_3 = rcan_args(n_resblocks=20, scale=[2])
-    models['Uyy'] = RCAN(args_3)
+    if os.path.exists(f"{PATH}/last_{'Uyy'}.pth"):
+        checkpoint = torch.load(f"{PATH}/last_{'Uyy'}.pth")
+        models['Uyy'] = checkpoint['model_state_dict']
+        optimizers['Uyy'] = checkpoint['optimizer_state_dict']
+    else:
+        args_3 = rcan_args(n_resblocks=20, scale=[2])
+        models['Uyy'] = RCAN(args_3)
+        optimizers['Uyy'] = Adam(models['Uyy'].parameters(), betas=(0.9, 0.999), eps=1e-8, lr=1e-4)
 
     # todo что-то тут не совпадает со статьёй. Написан, что n_layers=5,
     #  но тут челы говорят, что нужно меньше слоёв (работает только с n_layers=2)
     #  https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/776
-    models['Dx'] = NLayerDiscriminator(3, n_layers=2)
-    models['Dy'] = NLayerDiscriminator(3, n_layers=2)
-    models['Du'] = NLayerDiscriminator(3, n_layers=4)
+    if os.path.exists(f"{PATH}/last_{'Dx'}.pth"):
+        checkpoint = torch.load(f"{PATH}/last_{'Dx'}.pth")
+        models['Dx'] = checkpoint['model_state_dict']
+        optimizers['Dx'] = checkpoint['optimizer_state_dict']
+    else:
+        models['Dx'] = NLayerDiscriminator(3, n_layers=2)
+        optimizers['Dx'] = Adam(models['Dx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
+
+    if os.path.exists(f"{PATH}/last_{'Dy'}.pth"):
+        checkpoint = torch.load(f"{PATH}/last_{'Dy'}.pth")
+        models['Dy'] = checkpoint['model_state_dict']
+        optimizers['Dy'] = checkpoint['optimizer_state_dict']
+    else:
+        models['Dy'] = NLayerDiscriminator(3, n_layers=2)
+        optimizers['Dy'] = Adam(models['Dy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
+
+    if os.path.exists(f"{PATH}/last_{'Du'}.pth"):
+        checkpoint = torch.load(f"{PATH}/last_{'Du'}.pth")
+        models['Du'] = checkpoint['model_state_dict']
+        optimizers['Du'] = checkpoint['optimizer_state_dict']
+    else:
+        models['Du'] = NLayerDiscriminator(3, n_layers=4)
+        optimizers['Du'] = Adam(models['Du'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
     for name in models:
         models[name] = models[name].to(device)
 
-    # OPTIMIZERS
-    optimizers = {}
-    optimizers['Gyx'] = Adam(models['Gyx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
-    optimizers['Gxy'] = Adam(models['Gxy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
-    optimizers['Uyy'] = Adam(models['Uyy'].parameters(), betas=(0.9, 0.999), eps=1e-8, lr=1e-4)
-
-    optimizers['Dx'] = Adam(models['Dx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
-    optimizers['Dy'] = Adam(models['Dy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
-    optimizers['Du'] = Adam(models['Du'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
-
-    # DATALOADER
+    # TRANSFORMERS
     lr_transform = A.Compose([
         A.RandomCrop(width=LR_PATCH, height=LR_PATCH),
-        A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5),
-        A.Normalize(mean=(0.485, 0.456, 0.406),
-                    std=(0.229, 0.224, 0.225), p=1)
+        A.HorizontalFlip(),
+        A.RandomRotate90(),
+        A.Normalize(mean=(0.5, 0.5, 0.5),
+                    std=(0.5, 0.5, 0.5), p=1)
+    ])
+
+    lr_val_transform = A.Compose([
+        A.RandomCrop(width=LR_VAL_PATCH, height=LR_VAL_PATCH),
+        A.HorizontalFlip(),
+        A.RandomRotate90(),
+        A.Normalize(mean=(0.5, 0.5, 0.5),
+                    std=(0.5, 0.5, 0.5), p=1)
     ])
 
     hr_transform = A.Compose([
         A.RandomCrop(width=HR_PATCH, height=HR_PATCH),
-        A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5),
-        A.Normalize(mean=(0.485, 0.456, 0.406),
-                    std=(0.229, 0.224, 0.225), p=1)
+        A.HorizontalFlip(),
+        A.RandomRotate90(),
+        A.Normalize(mean=(0.5, 0.5, 0.5),
+                    std=(0.5, 0.5, 0.5), p=1)
     ])
-    dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=16)
 
-    train(models, dataloader, optimizers, coef, MAX_ITER, dataset, device=device)
+    # DATALOADERS
+    val_dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_val_transform, hr_transform)
+    val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True,)
+
+    for low_res, _ in val_dataloader:
+        low_res = low_res.permute(0, 3, 1, 2).contiguous()
+        fixed_lr = low_res.to(device)
+        break
+
+    train_dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,)
+
+    # TRAINING
+    train(models, train_dataloader, optimizers, coef, MAX_ITER, fixed_lr, device=device, PATH=PATH)
