@@ -4,7 +4,9 @@ from torch.optim import Adam
 import torch.nn as nn
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
 
+from kornia.filters import GaussianBlur2d
 from tqdm import tqdm
 import random
 random.seed(228)
@@ -15,8 +17,10 @@ from RCAN_models import RCAN
 from discriminators import NLayerDiscriminator
 from args import rcan_args
 
+
 ROTATE = [-1, 1, 2]
 FLIP = [0, 1]
+
 
 def geo_loss(simple_inference, generator, batch, rot, flip, loss):
     rotate_batch = torch.rot90(batch, k=rot, dims=(2, 3))
@@ -45,26 +49,19 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
         model.train()
 
     writer = SummaryWriter(f"logs/" + logs)
-    # writer_hr = SummaryWriter(f"logs/" + logs + '/HR')
 
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
+    gauss = GaussianBlur2d((11, 11), (10.5, 10.5))
 
     tbord_step = 0
     cur_iter = 0
     while cur_iter < max_iter:
         for low_res, high_res in tqdm(train_dataloader, position=0):
+            clean_lr = high_res.permute(0, 3, 1, 2).contiguous()
+            blured_clean_lr = gauss(clean_lr)
+            clean_lr = F.interpolate(blured_clean_lr, size=(32, 32), mode='nearest')
 
-
-
-            # hr = high_res.numpy()
-            # clean_lr = []
-            # for img in hr:
-            #     clean_lr.append(Downscale(img, (32, 32)))
-            #
-            # clean_lr = torch.tensor(clean_lr)
-
-            clean_lr = clean_lr.permute(0, 3, 1, 2).contiguous()
             low_res = low_res.permute(0, 3, 1, 2).contiguous()
             high_res = high_res.permute(0, 3, 1, 2).contiguous()
             clean_lr = clean_lr.to(device)
