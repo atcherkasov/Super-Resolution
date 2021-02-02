@@ -6,6 +6,8 @@ import torchvision
 from torch.utils.tensorboard import SummaryWriter
 
 from tqdm import tqdm
+import random
+random.seed(228)
 
 from data import LRandHR
 from utils import Downscale
@@ -13,18 +15,19 @@ from RCAN_models import RCAN
 from discriminators import NLayerDiscriminator
 from args import rcan_args
 
+ROTATE = [-1, 1, 2]
+FLIP = [0, 1]
 
-# def geo_loss(generator, x):
-#     simple_inference = generator(x)
-#
-#     arr = []
-#     for pic in x:
-#         arr.append(cv2.rotate(pic, cv2.cv2.ROTATE_90_CLOCKWISE))
-#     arr = generator(arr)
-#     res = []
-#     for pic in arr:
-#         res.append(cv2.rotate(pic, cv2.cv2.ROTATE_90_COUNTERCLOCKWISE))
-#     geo_mean_inference = torch.tensor(res)
+def geo_loss(simple_inference, generator, batch, rot, flip, loss):
+    rotate_batch = torch.rot90(batch, k=rot, dims=(2, 3))
+    if flip:
+        rotate_batch = torch.flip(rotate_batch, [-2])
+    rotate_inference = generator(rotate_batch)
+    if flip:
+        rotate_inference = torch.flip(rotate_inference, [-2])
+    rotate_inference = torch.rot90(rotate_inference, k=-rot, dims=(2, 3))
+
+    return loss(simple_inference, rotate_inference)
 
 
 def interval_mapping(image, from_min, from_max, to_min, to_max):
@@ -79,7 +82,8 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
             ### counting L1 losses
             L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr)
             L_idt = coef['idt'] * L1(fake_y, clean_lr)
-            L_geo = coef['geo'] * torch.ones_like(L_idt)  # todo придумать как это нормально реализовать
+            L_geo = coef['geo'] * geo_loss(fake_y, models['Gxy'], low_res,
+                                           random.choice(ROTATE), random.choice(FLIP), L1)
             L_rec = L1(upscale_y, high_res)
             
             for param in models['Dx'].parameters():
@@ -146,8 +150,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
             models['Dx'].zero_grad()
             models['Dy'].zero_grad()
             models['Du'].zero_grad()
-            with torch.autograd.set_detect_anomaly(True):
-                discriminator_loss.backward()       # добавление лосса даёт ошибку вот тут
+            discriminator_loss.backward()
             optimizers['Dx'].step()
             optimizers['Dy'].step()
             optimizers['Du'].step()
