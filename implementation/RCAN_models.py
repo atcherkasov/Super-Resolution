@@ -116,7 +116,7 @@ class RCAN(nn.Module):
         x = self.head(x)
 
         res = self.body(x)
-        res += x
+        res = res + x
 
         x = self.tail(res)
         x = self.add_mean(x)
