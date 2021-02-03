@@ -43,7 +43,7 @@ def interval_mapping(image, from_min, from_max, to_min, to_max):
     return to_min + (scaled * to_range)
 
 
-def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
+def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
           device=torch.device("cuda:0"), logs='', PATH='MODELS'):
     for model in models.values():
         model.train()
@@ -54,6 +54,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
     MSE = nn.MSELoss()
     gauss = GaussianBlur2d((11, 11), (1, 1))
 
+    fixed_lr, fixed_hr = fixed_batch
     tbord_step = 0
     cur_iter = 0
     while cur_iter < max_iter:
@@ -177,18 +178,62 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
                 )
 
                 with torch.no_grad():
+                    ### Actual Flow
                     fake_y = models['Gxy'](fixed_lr)
                     upscale_x = models['Uyy'](fake_y)
 
-                    img_grid_real = torchvision.utils.make_grid(
+                    grid_fixed_lr = torchvision.utils.make_grid(
                         fixed_lr, normalize=False
                     )
-                    img_grid_fake = torchvision.utils.make_grid(
+                    writer.add_image("LR source", interval_mapping(grid_fixed_lr, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
+
+                    grid_fake_y = torchvision.utils.make_grid(
+                        fake_y, normalize=False
+                    )
+                    writer.add_image("Fake y", interval_mapping(grid_fake_y, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
+
+                    grid_upscale_x = torchvision.utils.make_grid(
                         upscale_x, normalize=False
                     )
+                    writer.add_image("Upscale x (LR source)", interval_mapping(grid_upscale_x, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
 
-                    writer.add_image("LR", interval_mapping(img_grid_real, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
-                    writer.add_image("HR", interval_mapping(img_grid_fake, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
+                    ### Pseudo Flow
+                    blured_clean_lr = gauss(fixed_hr)
+                    clean_lr = F.interpolate(blured_clean_lr, size=(128, 128), mode='nearest')
+                    fake_x = models['Gyx'](clean_lr)
+                    pseudo_clean_lr = models['Gxy'](fake_x)
+                    upscale_y = models['Uyy'](pseudo_clean_lr)
+
+                    grid_fixed_hr = torchvision.utils.make_grid(
+                        fixed_hr, normalize=False
+                    )
+                    writer.add_image("HR source", interval_mapping(grid_fixed_hr, -1.0, 1.0, 0.0, 1.0),
+                                     global_step=tbord_step)
+
+                    grid_clean_lr = torchvision.utils.make_grid(
+                        clean_lr, normalize=False
+                    )
+                    writer.add_image("Clean LR", interval_mapping(grid_clean_lr, -1.0, 1.0, 0.0, 1.0),
+                                     global_step=tbord_step)
+
+                    grid_fake_x = torchvision.utils.make_grid(
+                        fake_x, normalize=False
+                    )
+                    writer.add_image("Fake x", interval_mapping(grid_fake_x, -1.0, 1.0, 0.0, 1.0),
+                                     global_step=tbord_step)
+
+                    grid_pseudo_clean_lr = torchvision.utils.make_grid(
+                        pseudo_clean_lr, normalize=False
+                    )
+                    writer.add_image("Pseudo-clean LR", interval_mapping(grid_pseudo_clean_lr, -1.0, 1.0, 0.0, 1.0),
+                                     global_step=tbord_step)
+
+                    grid_upscale_y = torchvision.utils.make_grid(
+                        upscale_y, normalize=False
+                    )
+                    writer.add_image("Upscale y (HR source) ", interval_mapping(grid_upscale_y, -1.0, 1.0, 0.0, 1.0),
+                                     global_step=tbord_step)
+
                     writer.add_scalar('Generator loss', generator_loss, global_step=tbord_step)
                     writer.add_scalar('Discriminator loss', discriminator_loss, global_step=tbord_step)
 
@@ -212,6 +257,7 @@ if __name__ == '__main__':
     BATCH_SIZE=16
     LR_PATCH=32
     LR_VAL_PATCH=256
+    HR_VAL_PATCH=512
     HR_PATCH=64
     MAX_ITER=3e5
     coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
@@ -287,14 +333,6 @@ if __name__ == '__main__':
                     std=(0.5, 0.5, 0.5), p=1)
     ])
 
-    lr_val_transform = A.Compose([
-        A.RandomCrop(width=LR_VAL_PATCH, height=LR_VAL_PATCH),
-        A.HorizontalFlip(),
-        A.RandomRotate90(),
-        A.Normalize(mean=(0.5, 0.5, 0.5),
-                    std=(0.5, 0.5, 0.5), p=1)
-    ])
-
     hr_transform = A.Compose([
         A.RandomCrop(width=HR_PATCH, height=HR_PATCH),
         A.HorizontalFlip(),
@@ -303,17 +341,36 @@ if __name__ == '__main__':
                     std=(0.5, 0.5, 0.5), p=1)
     ])
 
+    lr_val_transform = A.Compose([
+        A.RandomCrop(width=LR_VAL_PATCH, height=LR_VAL_PATCH),
+        A.HorizontalFlip(),
+        A.RandomRotate90(),
+        A.Normalize(mean=(0.5, 0.5, 0.5),
+                    std=(0.5, 0.5, 0.5), p=1)
+    ])
+
+    hr_val_transform = A.Compose([
+        A.RandomCrop(width=HR_VAL_PATCH, height=HR_VAL_PATCH),
+        A.HorizontalFlip(),
+        A.RandomRotate90(),
+        A.Normalize(mean=(0.5, 0.5, 0.5),
+                    std=(0.5, 0.5, 0.5), p=1)
+    ])
+
     # DATALOADERS
-    val_dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_val_transform, hr_transform)
+    val_dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_val_transform, hr_val_transform)
     val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
-    for low_res, _ in val_dataloader:
+    for low_res, high_res in val_dataloader:
         low_res = low_res.permute(0, 3, 1, 2).contiguous()
         fixed_lr = low_res.to(device)
+
+        high_res = high_res.permute(0, 3, 1, 2).contiguous()
+        fixed_hr = high_res.to(device)
         break
 
     train_dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
     # TRAINING
-    train(models, train_dataloader, optimizers, coef, MAX_ITER, fixed_lr, device=device, PATH=PATH)
+    train(models, train_dataloader, optimizers, coef, MAX_ITER, (fixed_lr, fixed_hr), device=device, PATH=PATH)
