@@ -18,7 +18,7 @@ from discriminators import NLayerDiscriminator
 from args import rcan_args
 
 
-ROTATE = [-1, 1, 2]
+ROTATE = [-1, 0, 1, 2]
 FLIP = [0, 1]
 
 
@@ -52,7 +52,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
 
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
-    gauss = GaussianBlur2d((11, 11), (10.5, 10.5))
+    gauss = GaussianBlur2d((11, 11), (1, 1))
 
     tbord_step = 0
     cur_iter = 0
@@ -78,7 +78,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
 
             ### counting L1 losses
             L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr)
-            L_idt = coef['idt'] * L1(fake_y, clean_lr)
+            L_idt = coef['idt'] * L1(models['Gxy'](clean_lr), clean_lr)
             L_geo = coef['geo'] * geo_loss(fake_y, models['Gxy'], low_res,
                                            random.choice(ROTATE), random.choice(FLIP), L1)
             L_rec = L1(upscale_y, high_res)
@@ -92,16 +92,20 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
 
             ### counting generator's loss
             disc_x_fake = models['Dx'](fake_x)
-            disc_x_fake_loss = MSE(disc_x_fake, torch.zeros_like(disc_x_fake))
+            disc_x_fake_loss = MSE(disc_x_fake, torch.ones_like(disc_x_fake))
 
             disc_y_fake = models['Dy'](fake_y)
-            disc_y_fake_loss = MSE(disc_y_fake, torch.zeros_like(disc_y_fake))
+            disc_y_fake_loss = MSE(disc_y_fake, torch.ones_like(disc_y_fake))
 
             disc_U_fake = models['Du'](upscale_y)
-            disc_U_fake_loss = MSE(disc_U_fake, torch.zeros_like(disc_U_fake))
+            disc_U_fake_loss = MSE(disc_U_fake, torch.ones_like(disc_U_fake))
 
-            generator_loss = L_cyc + L_idt + L_rec + \
-                             disc_x_fake_loss + disc_y_fake_loss + coef['gamma'] * disc_U_fake_loss # todo добавить L_geo
+            disc_U_real = models['Du'](upscale_x)
+            disc_U_real_loss = MSE(disc_U_real, torch.zeros_like(disc_U_real))
+
+            generator_loss = L_cyc + L_idt + L_rec + L_geo + \
+                             disc_x_fake_loss + disc_y_fake_loss + \
+                             coef['gamma'] * disc_U_fake_loss + coef['gamma'] * disc_U_real_loss
 
             ### backward on generator
             models['Gyx'].zero_grad()
@@ -141,7 +145,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
             disc_U_fake_loss = MSE(disc_U_fake, torch.zeros_like(disc_U_fake))
 
             discriminator_loss = disc_x_real_loss + disc_x_fake_loss + disc_y_real_loss + disc_y_fake_loss + \
-                                 coef['gamma'] * disc_U_real_loss + coef['gamma'] * disc_U_fake_loss
+                                 disc_U_real_loss + disc_U_fake_loss
 
             ### backward on discriminator
             models['Dx'].zero_grad()
@@ -177,14 +181,14 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_lr,
                     upscale_x = models['Uyy'](fake_y)
 
                     img_grid_real = torchvision.utils.make_grid(
-                        fixed_lr, normalize=True
+                        fixed_lr, normalize=False
                     )
                     img_grid_fake = torchvision.utils.make_grid(
-                        upscale_x, normalize=True
+                        upscale_x, normalize=False
                     )
 
-                    writer.add_image("LR", interval_mapping(img_grid_real, 0.0, 1.0, 0.0, 255.0), global_step=tbord_step)
-                    writer.add_image("HR", interval_mapping(img_grid_fake, 0.0, 1.0, 0.0, 255.0), global_step=tbord_step)
+                    writer.add_image("LR", interval_mapping(img_grid_real, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
+                    writer.add_image("HR", interval_mapping(img_grid_fake, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
                     writer.add_scalar('Generator loss', generator_loss, global_step=tbord_step)
                     writer.add_scalar('Discriminator loss', discriminator_loss, global_step=tbord_step)
 
