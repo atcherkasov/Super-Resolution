@@ -115,7 +115,8 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
             generator_loss.backward()
             optimizers['Gyx'].step()
             optimizers['Gxy'].step()
-            optimizers['Uyy'].step()
+            if not FREEZE_UPSCALE:
+                optimizers['Uyy'].step()
             
             for param in models['Dx'].parameters():
                 param.requires_grad = True
@@ -254,76 +255,108 @@ if __name__ == '__main__':
     import os
 
     # PARAMETERS
+    # static
     BATCH_SIZE=16
     LR_PATCH=32
     LR_VAL_PATCH=256
     HR_VAL_PATCH=512
     HR_PATCH=64
     MAX_ITER=3e5
-    coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
+    # infro
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     PATH='MODELS'
+    # customize
+    coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
+    FREEZE_UPSCALE=True
 
     # MODELS
     models = {}
     optimizers = {}
+    args_1 = rcan_args()
+    models['Gyx'] = RCAN(args_1)
+    models['Gyx'].to(device)
+    optimizers['Gyx'] = Adam(models['Gyx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
     if os.path.exists(f"{PATH}/last_{'Gyx'}.pth"):
         checkpoint = torch.load(f"{PATH}/last_{'Gyx'}.pth")
-        models['Gyx'] = checkpoint['model_state_dict']
-        optimizers['Gyx'] = checkpoint['optimizer_state_dict']
-    else:
-        args_1 = rcan_args()
-        models['Gyx'] = RCAN(args_1)
-        optimizers['Gyx'] = Adam(models['Gyx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
+        models['Gyx'].load_state_dict(checkpoint['model_state_dict'])
+#         models['Gyx'].to(device)
+        optimizers['Gyx'].load_state_dict(checkpoint['optimizer_state_dict'])
+#     else:
+#         args_1 = rcan_args()
+#         models['Gyx'] = RCAN(args_1)
+#         optimizers['Gyx'] = Adam(models['Gyx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
+    args_2 = rcan_args()
+    models['Gxy'] = RCAN(args_2)
+    models['Gxy'].to(device)
+    optimizers['Gxy'] = Adam(models['Gxy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
     if os.path.exists(f"{PATH}/last_{'Gxy'}.pth"):
         checkpoint = torch.load(f"{PATH}/last_{'Gxy'}.pth")
-        models['Gxy'] = checkpoint['model_state_dict']
-        optimizers['Gxy'] = checkpoint['optimizer_state_dict']
-    else:
-        args_2 = rcan_args()
-        models['Gxy'] = RCAN(args_2)
-        optimizers['Gxy'] = Adam(models['Gxy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
+        models['Gxy'].load_state_dict(checkpoint['model_state_dict'])
+#         models['Gxy'].to(device)
+        optimizers['Gxy'].load_state_dict(checkpoint['optimizer_state_dict'])
+#     else:
+#         args_2 = rcan_args()
+#         models['Gxy'] = RCAN(args_2)
+#         optimizers['Gxy'] = Adam(models['Gxy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
-    if os.path.exists(f"{PATH}/last_{'Uyy'}.pth"):
-        checkpoint = torch.load(f"{PATH}/last_{'Uyy'}.pth")
-        models['Uyy'] = checkpoint['model_state_dict']
-        optimizers['Uyy'] = checkpoint['optimizer_state_dict']
+    if FREEZE_UPSCALE:
+        # todo add loading pretrain U (https://drive.google.com/file/d/10bEK-NxVtOS9-XSeyOZyaRmxUTX3iIRa/view?usp=sharing)
     else:
         args_3 = rcan_args(n_resblocks=20, scale=[2])
         models['Uyy'] = RCAN(args_3)
+        models['Uyy'].to(device)
         optimizers['Uyy'] = Adam(models['Uyy'].parameters(), betas=(0.9, 0.999), eps=1e-8, lr=1e-4)
+        if os.path.exists(f"{PATH}/last_{'Uyy'}.pth"):
+            checkpoint = torch.load(f"{PATH}/last_{'Uyy'}.pth")
+            models['Uyy'].load_state_dict(checkpoint['model_state_dict'])
+            optimizers['Uyy'].load_state_dict(checkpoint['optimizer_state_dict'])
+    #     else:
+    #         args_3 = rcan_args(n_resblocks=20, scale=[2])
+    #         models['Uyy'] = RCAN(args_3)
+    #         optimizers['Uyy'] = Adam(models['Uyy'].parameters(), betas=(0.9, 0.999), eps=1e-8, lr=1e-4)
+    if FREEZE_UPSCALE:
+        for param in models['Uyy'].parameters():
+            param.requires_grad = False
 
     # todo что-то тут не совпадает со статьёй. Написан, что n_layers=5,
     #  но тут челы говорят, что нужно меньше слоёв (работает только с n_layers=2)
     #  https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/776
+    models['Dx'] = NLayerDiscriminator(3, n_layers=2)
+    models['Dx'].to(device)
+    optimizers['Dx'] = Adam(models['Dx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
     if os.path.exists(f"{PATH}/last_{'Dx'}.pth"):
         checkpoint = torch.load(f"{PATH}/last_{'Dx'}.pth")
-        models['Dx'] = checkpoint['model_state_dict']
-        optimizers['Dx'] = checkpoint['optimizer_state_dict']
-    else:
-        models['Dx'] = NLayerDiscriminator(3, n_layers=2)
-        optimizers['Dx'] = Adam(models['Dx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
+        models['Dx'].load_state_dict(checkpoint['model_state_dict'])
+        optimizers['Dx'].load_state_dict(checkpoint['optimizer_state_dict'])
+#     else:
+#         models['Dx'] = NLayerDiscriminator(3, n_layers=2)
+#         optimizers['Dx'] = Adam(models['Dx'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
+    models['Dy'] = NLayerDiscriminator(3, n_layers=2)
+    models['Dy'].to(device)
+    optimizers['Dy'] = Adam(models['Dy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
     if os.path.exists(f"{PATH}/last_{'Dy'}.pth"):
         checkpoint = torch.load(f"{PATH}/last_{'Dy'}.pth")
-        models['Dy'] = checkpoint['model_state_dict']
-        optimizers['Dy'] = checkpoint['optimizer_state_dict']
-    else:
-        models['Dy'] = NLayerDiscriminator(3, n_layers=2)
-        optimizers['Dy'] = Adam(models['Dy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
+        models['Dy'].load_state_dict(checkpoint['model_state_dict'])
+        optimizers['Dy'].load_state_dict(checkpoint['optimizer_state_dict'])
+#     else:
+#         models['Dy'] = NLayerDiscriminator(3, n_layers=2)
+#         optimizers['Dy'] = Adam(models['Dy'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
+    models['Du'] = NLayerDiscriminator(3, n_layers=4)
+    models['Du'].to(device)
+    optimizers['Du'] = Adam(models['Du'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
     if os.path.exists(f"{PATH}/last_{'Du'}.pth"):
         checkpoint = torch.load(f"{PATH}/last_{'Du'}.pth")
-        models['Du'] = checkpoint['model_state_dict']
-        optimizers['Du'] = checkpoint['optimizer_state_dict']
-    else:
-        models['Du'] = NLayerDiscriminator(3, n_layers=4)
-        optimizers['Du'] = Adam(models['Du'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
+        models['Du'].load_state_dict(checkpoint['model_state_dict'])
+        optimizers['Du'].load_state_dict(checkpoint['optimizer_state_dict'])
+#     else:
+#         models['Du'] = NLayerDiscriminator(3, n_layers=4)
+#         optimizers['Du'] = Adam(models['Du'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
-    print(device)
-    for name in models:
-        models[name] = models[name].to(device)
+#     for name in models.keys():
+#         models[name] = models[name].to(device)
 
     # TRANSFORMERS
     lr_transform = A.Compose([
