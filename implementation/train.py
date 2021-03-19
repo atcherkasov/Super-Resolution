@@ -321,6 +321,7 @@ if __name__ == '__main__':
         models['Du'] = NLayerDiscriminator(3, n_layers=4)
         optimizers['Du'] = Adam(models['Du'].parameters(), betas=(0.5, 0.999), eps=1e-8, lr=1e-4)
 
+    print(device)
     for name in models:
         models[name] = models[name].to(device)
 
@@ -358,7 +359,7 @@ if __name__ == '__main__':
     ])
 
     # DATALOADERS
-    val_dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_val_transform, hr_val_transform)
+    val_dataset = LRandHR('/cache/chat_data/LR_valid/', '/cache/chat_data/DIV2K_train_HR/', lr_val_transform, hr_val_transform)
     val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
     for low_res, high_res in val_dataloader:
@@ -369,7 +370,7 @@ if __name__ == '__main__':
         fixed_hr = high_res.to(device)
         break
 
-    train_dataset = LRandHR('../DATA/LR_train/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
+    train_dataset = LRandHR('/cache/chat_data/LR_valid/', '/cache/chat_data/DIV2K_train_HR/', lr_transform, hr_transform)
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
     # TRAINING
