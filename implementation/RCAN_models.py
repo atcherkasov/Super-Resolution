@@ -7,10 +7,6 @@ import torch.nn as nn
 import common
 
 
-def make_model(args, parent=False):
-    return RCAN(args)
-
-
 ## Channel Attention (CA) Layer
 class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
@@ -87,10 +83,9 @@ class RCAN(nn.Module):
         # RGB mean for DIV2K
         rgb_mean = (0.4488, 0.4371, 0.4040)
         rgb_std = (1.0, 1.0, 1.0)
-        self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
 
         # define head module
-        modules_head = [conv(args.n_colors, n_feats, kernel_size)]
+        modules_head = [conv(args.in_colors, n_feats, kernel_size)]
 
         # define body module
         modules_body = [
@@ -103,23 +98,19 @@ class RCAN(nn.Module):
         # define tail module
         modules_tail = [
             common.Upsampler(conv, scale, n_feats, act=False),
-            conv(n_feats, args.n_colors, kernel_size)]
-
-        self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
+            conv(n_feats, args.out_colors, kernel_size)]
 
         self.head = nn.Sequential(*modules_head)
         self.body = nn.Sequential(*modules_body)
         self.tail = nn.Sequential(*modules_tail)
 
     def forward(self, x):
-        x = self.sub_mean(x)
         x = self.head(x)
 
         res = self.body(x)
         res = res + x
 
         x = self.tail(res)
-        x = self.add_mean(x)
 
         return x
 
