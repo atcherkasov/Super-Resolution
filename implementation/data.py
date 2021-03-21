@@ -65,7 +65,7 @@ if __name__ == '__main__':
         A.Rotate(limit=90, interpolation=1, border_mode=4, p=0.5)
     ])
 
-    data = LRandHR('../DATA/LR_valid/', '../DATA/DIV2K_train_HR/', lr_transform, hr_transform)
+    data = LRandHR('/cache/chat_data/LR_valid/', '/cache/chat_data/DIV2K_train_HR/', lr_transform, hr_transform)
 
     lr = data[0][0] # LR image
     hr = data[0][1] # HR image
