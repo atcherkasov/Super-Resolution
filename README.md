@@ -9,4 +9,5 @@ For start training:
 2. run `python -m pip install -r implementation/requirements.txt`
 or `python -m conda install -r implementation/requirements.txt`
 3. run `cd implementation` and `export PYTHONPATH="."` 
-4. run `python3 configs/train_config.py`
+4. run `export CUDA_VISIBLE_DEVICES=0` for selecting number of uor GPU
+5. run `python3 configs/train_config.py`
