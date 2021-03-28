@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from kornia.filters import GaussianBlur2d
 from tqdm import tqdm
 import os
+import sys
 import random
 random.seed(228)
 
@@ -43,6 +44,7 @@ def interval_mapping(image, from_min, from_max, to_min, to_max):
     scaled = torch.tensor((image - from_min) / float(from_range), dtype=torch.float)
     return to_min + (scaled * to_range)
 
+
 def gen_experiment_num(exp_path, exp_name):
     '''
     will found all experiments with same name as <exp_name>
@@ -54,16 +56,47 @@ def gen_experiment_num(exp_path, exp_name):
         if exp.split('_')[0] == exp_name:
             exp_num = max(exp_num, int(exp.split('_')[1]))
     return str(exp_num + 1)
+
+
+def setting_dirs(argv):
+    # SETTING DIRS
+    glob_path = '/cache/chat/experiments/'
+    exp_name = argv[0][:-3].split('/')[-1]
+    if len(argv) > 1:
+        # so we need to load old experiment
+        number = int(sys.argv[1])
+        glob_path += f'/{exp_name}_{number}'
+    else:
+        # so we will create brand new experiment
+        exp_name = f'{exp_name}_{gen_experiment_num(glob_path, exp_name)}'
+        config_name = argv[0].split('/')[-1]
+        
+        os.mkdir(f'{glob_path}{exp_name}')
+        os.mkdir(f'{glob_path}{exp_name}/runs')
+        os.mkdir(f'{glob_path}{exp_name}/models')
+        glob_path += exp_name
+        
+        fout = open(f'{glob_path}/{config_name}', 'w')
+        with open(argv[0]) as f:
+            content = f.readlines()
+            for line in content:
+                print(line, file=fout)
+            fout.close()
+    PATH=f'{glob_path}/models'
+    LOGS=f'{glob_path}/runs'
+    
+    return PATH, LOGS
   
 
-def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,  
-          MODEL_PATH=PATH, logs=LOGS, device=torch.device("cuda:0"), 
+def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
+          MODEL_PATH, logs, device=torch.device("cuda:0"),
           FREEZE_UPSCALE=False, cur_iter=0):
     for model in models.values():
         model.train()
     
     writer = SummaryWriter(logs)
-
+    
+    print('\n\tstart training!')
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
     gauss = GaussianBlur2d((11, 11), (1, 1))
@@ -268,24 +301,7 @@ if __name__ == '__main__':
     import albumentations as A
     import os
     import sys
-        
-        
-    # SETTING DIRS
-    glob_path = '/cache/chat/experiments/'
-    if len(sys.argv) > 1:
-        # so we need to load old experiment
-        number = int(sys.argv[1])
-        glob_path += f'{sys.argv[0][:-3]}_{number}'
-    else:
-        # so we will create brand new experiment
-        exp_name = sys.argv[0][:-3]
-        exp_name = f'{exp_name}_{gen_experiment_num(glob_path, exp_name)}'
-        os.mkdir(f'{glob_path}{exp_name}')
-        os.mkdir(f'{glob_path}{exp_name}/runs')
-        os.mkdir(f'{glob_path}{exp_name}/models')
-        glob_path += exp_name
-    PATH=f'{glob_path}/models'
-    LOGS=f'{glob_path}/runs'
+    
     
     # PARAMETERS
     # static
@@ -298,6 +314,7 @@ if __name__ == '__main__':
     CUR_ITER=0
     # infro
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    PATH, LOGS = setting_dirs(sys.argv)
     FREEZ_RCAN='/cache/chat_models/models_ECCV2018RCAN/RCAN_BIX2.pt'
     # customize
     coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
@@ -418,5 +435,5 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
     # TRAINING
-    train(models, train_dataloader, optimizers, coef, MAX_ITER, (fixed_lr, fixed_hr), exp_name=os.path.basename(__file__), device=device, MODEL_PATH=PATH, logs=LOGS, FREEZE_UPSCALE=FREEZE_UPSCALE, cur_iter=CUR_ITER)
+    train(models, train_dataloader, optimizers, coef, MAX_ITER, (fixed_lr, fixed_hr), MODEL_PATH=PATH, logs=LOGS, device=device, FREEZE_UPSCALE=FREEZE_UPSCALE, cur_iter=CUR_ITER)
     
