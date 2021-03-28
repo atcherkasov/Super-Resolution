@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 from kornia.filters import GaussianBlur2d
 from tqdm import tqdm
+import os
 import random
 random.seed(228)
 
@@ -42,13 +43,26 @@ def interval_mapping(image, from_min, from_max, to_min, to_max):
     scaled = torch.tensor((image - from_min) / float(from_range), dtype=torch.float)
     return to_min + (scaled * to_range)
 
+def gen_experiment_num(exp_path, exp_name):
+    '''
+    will found all experiments with same name as <exp_name>
+    and return <exp_name>_<biggesr number + 1>
+    '''
+    experiments = os.listdir(exp_path)
+    exp_num = -1
+    for exp in experiments:
+        if exp.split('_')[0] == exp_name:
+            exp_num = max(exp_num, int(exp.split('_')[1]))
+    return str(exp_num + 1)
+  
 
-def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
-          device=torch.device("cuda:0"), logs='', PATH='MODELS'):
+def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,  
+          MODEL_PATH=PATH, logs=LOGS, device=torch.device("cuda:0"), 
+          FREEZE_UPSCALE=False, cur_iter=0):
     for model in models.values():
         model.train()
-
-    writer = SummaryWriter(f"logs/" + logs)
+    
+    writer = SummaryWriter(logs)
 
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
@@ -56,7 +70,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
 
     fixed_lr, fixed_hr = fixed_batch
     tbord_step = 0
-    cur_iter = 0
+    cur_iter = cur_iter
     while cur_iter < max_iter:
         for low_res, high_res in tqdm(train_dataloader, position=0):
             clean_lr = high_res.permute(0, 3, 1, 2).contiguous()
@@ -165,12 +179,12 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                                 'iter' : cur_iter,
                                 'model_state_dict' : model[1].state_dict(),
                                 'optimizer_state_dict': optimizers[model[0]].state_dict()
-                                }, f"{PATH}/{cur_iter // 10 ** 3}_{model[0]}.pth")
+                                }, f"{MODEL_PATH}/{cur_iter // 10 ** 3}_{model[0]}.pth")
                     torch.save({
                                 'iter': cur_iter,
                                 'model_state_dict': model[1].state_dict(),
                                 'optimizer_state_dict': optimizers[model[0]].state_dict()
-                                }, f"{PATH}/last_{model[0]}.pth")
+                                }, f"{MODEL_PATH}/last_{model[0]}.pth")
 
             if cur_iter % 100 == 0:
                 print(
@@ -253,7 +267,26 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
 if __name__ == '__main__':
     import albumentations as A
     import os
-
+    import sys
+        
+        
+    # SETTING DIRS
+    glob_path = '/cache/chat/experiments/'
+    if len(sys.argv) > 1:
+        # so we need to load old experiment
+        number = int(sys.argv[1])
+        glob_path += f'{sys.argv[0][:-3]}_{number}'
+    else:
+        # so we will create brand new experiment
+        exp_name = sys.argv[0][:-3]
+        exp_name = f'{exp_name}_{gen_experiment_num(glob_path, exp_name)}'
+        os.mkdir(f'{glob_path}{exp_name}')
+        os.mkdir(f'{glob_path}{exp_name}/runs')
+        os.mkdir(f'{glob_path}{exp_name}/models')
+        glob_path += exp_name
+    PATH=f'{glob_path}/models'
+    LOGS=f'{glob_path}/runs'
+    
     # PARAMETERS
     # static
     BATCH_SIZE=16
@@ -262,14 +295,14 @@ if __name__ == '__main__':
     HR_VAL_PATCH=512
     HR_PATCH=64
     MAX_ITER=3e5
+    CUR_ITER=0
     # infro
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    PATH='/cache/chat_models/MODELS'
     FREEZ_RCAN='/cache/chat_models/models_ECCV2018RCAN/RCAN_BIX2.pt'
     # customize
     coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
     FREEZE_UPSCALE=True
-
+    
     # MODELS
     models = {}
     optimizers = {}
@@ -333,6 +366,7 @@ if __name__ == '__main__':
         checkpoint = torch.load(f"{PATH}/last_{'Du'}.pth")
         models['Du'].load_state_dict(checkpoint['model_state_dict'])
         optimizers['Du'].load_state_dict(checkpoint['optimizer_state_dict'])
+        CUR_ITER = checkpoint['iter']
 #######################################################################################
 
     # TRANSFORMERS
@@ -384,4 +418,5 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
     # TRAINING
-    train(models, train_dataloader, optimizers, coef, MAX_ITER, (fixed_lr, fixed_hr), device=device, PATH=PATH)
+    train(models, train_dataloader, optimizers, coef, MAX_ITER, (fixed_lr, fixed_hr), exp_name=os.path.basename(__file__), device=device, MODEL_PATH=PATH, logs=LOGS, FREEZE_UPSCALE=FREEZE_UPSCALE, cur_iter=CUR_ITER)
+    
