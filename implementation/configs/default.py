@@ -29,7 +29,7 @@ if __name__ == '__main__':
     FREEZ_RCAN='/cache/chat_models/models_ECCV2018RCAN/RCAN_BIX2.pt'
     # customize
     coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
-    FREEZE_UPSCALE=True
+    FREEZE_UPSCALE=False
     
     # MODELS
     models = {}
@@ -142,7 +142,7 @@ if __name__ == '__main__':
         fixed_hr = high_res.to(device)
         break
 
-    train_dataset = LRandHR('/cache/chat_data/LR_valid/', '/cache/chat_data/DIV2K_train_HR/', lr_transform, hr_transform)
+    train_dataset = LRandHR('/cache/chat_data/LR/', '/cache/chat_data/HR/', lr_transform, hr_transform)
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
     # TRAINING
