@@ -50,6 +50,7 @@ def gen_experiment_num(exp_path, exp_name):
     will found all experiments with same name as <exp_name>
     and return <exp_name>_<biggesr number + 1>
     '''
+    exp_name = exp_name.split('_')[0]
     experiments = os.listdir(exp_path)
     exp_num = -1
     for exp in experiments:
@@ -88,8 +89,8 @@ def setting_dirs(argv):
     return PATH, LOGS
   
 
-def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
-          MODEL_PATH, logs, device=torch.device("cuda:0"),
+def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch, 
+          MODEL_PATH, logs, stochastic=None, device=torch.device("cuda:0"),
           FREEZE_UPSCALE=False, cur_iter=0):
     for model in models.values():
         model.train()
@@ -109,6 +110,18 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
             clean_lr = high_res.permute(0, 3, 1, 2).contiguous()
             blured_clean_lr = gauss(clean_lr)
             clean_lr = F.interpolate(blured_clean_lr, size=(32, 32), mode='nearest')
+            if stochastic:
+                if stochastic['case'] == 1:
+                    # add Gausse noise as 4th channel
+                    noise = torch.rand(stochastic['BATCH_SIZE'], 
+                                       1, 
+                                       stochastic['LR_PATCH'],   
+                                       stochastic['LR_PATCH'])
+                    noise.to(device)
+                    clean_lr = torch.cat((clean_lr, noise), 1)
+                if stochastic['case'] == 2:
+                    # add Gausse noise as a filter in the middle of Gyx model
+                    pass
 
             low_res = low_res.permute(0, 3, 1, 2).contiguous()
             high_res = high_res.permute(0, 3, 1, 2).contiguous()
@@ -125,8 +138,12 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
             upscale_y = models['Uyy'](pseudo_clean_lr)
 
             ### counting L1 losses
-            L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr)
-            L_idt = coef['idt'] * L1(models['Gxy'](clean_lr), clean_lr)
+            if stochastic['case'] == 1:
+                L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr[:, :3, :, :])
+                L_idt = coef['idt'] * L1(models['Gxy'](clean_lr[:, :3, :, :]), clean_lr[:, :3, :, :])
+            else:
+                L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr)
+                L_idt = coef['idt'] * L1(models['Gxy'](clean_lr), clean_lr)
             L_geo = coef['geo'] * geo_loss(fake_y, models['Gxy'], low_res,
                                            random.choice(ROTATE), random.choice(FLIP), L1)
             L_rec = L1(upscale_y, high_res)
@@ -177,7 +194,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
             disc_x_real = models['Dx'](low_res)
             disc_x_real_loss = MSE(disc_x_real, torch.ones_like(disc_x_real))
 
-            disc_y_real = models['Dy'](clean_lr)
+            disc_y_real = models['Dy'](clean_lr[:, :3, :, :])
             disc_y_real_loss = MSE(disc_y_real, torch.ones_like(disc_y_real))
 
             disc_U_real = models['Du'](upscale_x.detach())
@@ -227,6 +244,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
 
                 with torch.no_grad():
                     ### Actual Flow
+
                     fake_y = models['Gxy'](fixed_lr)
                     upscale_x = models['Uyy'](fake_y)
 
@@ -248,6 +266,13 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     ### Pseudo Flow
                     blured_clean_lr = gauss(fixed_hr)
                     clean_lr = F.interpolate(blured_clean_lr, size=(128, 128), mode='nearest')
+                    noise = torch.rand(stochastic['BATCH_SIZE'], 
+                                       1, 
+                                       128,   
+                                       128)
+                    noise = noise.to(device)
+                    clean_lr = torch.cat((clean_lr, noise), 1)
+                    
                     fake_x = models['Gyx'](clean_lr)
                     pseudo_clean_lr = models['Gxy'](fake_x)
                     upscale_y = models['Uyy'](pseudo_clean_lr)
@@ -318,7 +343,7 @@ if __name__ == '__main__':
     FREEZ_RCAN='/cache/chat_models/models_ECCV2018RCAN/RCAN_BIX2.pt'
     # customize
     coef = {'gamma': 0.1, 'cyc': 1, 'idt': 1, 'geo': 1}
-    FREEZE_UPSCALE=True
+    FREEZE_UPSCALE=False
     
     # MODELS
     models = {}
@@ -423,6 +448,7 @@ if __name__ == '__main__':
     val_dataset = LRandHR('/cache/chat_data/LR_valid/', '/cache/chat_data/DIV2K_train_HR/', lr_val_transform, hr_val_transform)
     val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
+    # take first batch from val_dataloader
     for low_res, high_res in val_dataloader:
         low_res = low_res.permute(0, 3, 1, 2).contiguous()
         fixed_lr = low_res.to(device)
@@ -431,7 +457,7 @@ if __name__ == '__main__':
         fixed_hr = high_res.to(device)
         break
 
-    train_dataset = LRandHR('/cache/chat_data/LR_valid/', '/cache/chat_data/DIV2K_train_HR/', lr_transform, hr_transform)
+    train_dataset = LRandHR('/cache/chat_data/LR/', '/cache/chat_data/HR/', lr_transform, hr_transform)
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,)
 
     # TRAINING
