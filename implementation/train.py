@@ -138,7 +138,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
             upscale_y = models['Uyy'](pseudo_clean_lr)
 
             ### counting L1 losses
-            if stochastic['case'] == 1:
+            if stochastic and stochastic['case'] == 1:
                 L_cyc = coef['cyc'] * L1(pseudo_clean_lr, clean_lr[:, :3, :, :])
                 L_idt = coef['idt'] * L1(models['Gxy'](clean_lr[:, :3, :, :]), clean_lr[:, :3, :, :])
             else:
@@ -241,7 +241,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     f"Iter [{cur_iter}/{max_iter}] \
                               loss G: {generator_loss:.4f}, Loss D: {discriminator_loss:.4f}"
                 )
-
+            if cur_iter % 1000 == 0:
                 with torch.no_grad():
                     ### Actual Flow
 
@@ -251,27 +251,42 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     grid_fixed_lr = torchvision.utils.make_grid(
                         fixed_lr, normalize=False
                     )
-                    writer.add_image("LR source", interval_mapping(grid_fixed_lr, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
+                    writer.add_image("LR source", interval_mapping(grid_fixed_lr, 
+                                                                   torch.min(fixed_lr), 
+                                                                   torch.min(fixed_lr),
+                                                                   0.0, 1.0), 
+                                     global_step=tbord_step)
 
                     grid_fake_y = torchvision.utils.make_grid(
                         fake_y, normalize=False
                     )
-                    writer.add_image("Fake y", interval_mapping(grid_fake_y, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
-
+                    writer.add_image("Fake y", interval_mapping(grid_fixed_lr, 
+                                                                   torch.min(fake_y), 
+                                                                   torch.min(fake_y),
+                                                                   0.0, 1.0), 
+                                     global_step=tbord_step)
+                  
                     grid_upscale_x = torchvision.utils.make_grid(
                         upscale_x, normalize=False
                     )
-                    writer.add_image("Upscale x (LR source)", interval_mapping(grid_upscale_x, -1.0, 1.0, 0.0, 1.0), global_step=tbord_step)
-
+                    writer.add_image("Upscale x (LR source)", 
+                                     interval_mapping(grid_fixed_lr, 
+                                                                   torch.min(upscale_x), 
+                                                                   torch.min(upscale_x),
+                                                                   0.0, 1.0), 
+                                     global_step=tbord_step)
+                    
                     ### Pseudo Flow
                     blured_clean_lr = gauss(fixed_hr)
-                    clean_lr = F.interpolate(blured_clean_lr, size=(128, 128), mode='nearest')
-                    noise = torch.rand(stochastic['BATCH_SIZE'], 
-                                       1, 
-                                       128,   
-                                       128)
-                    noise = noise.to(device)
-                    clean_lr = torch.cat((clean_lr, noise), 1)
+                    clean_lr = F.interpolate(blured_clean_lr, size=(128, 128), 
+                                             mode='nearest')
+                    if stochastic:
+                        noise = torch.rand(stochastic['BATCH_SIZE'], 
+                                           1, 
+                                           128,   
+                                           128)
+                        noise = noise.to(device)
+                        clean_lr = torch.cat((clean_lr, noise), 1)
                     
                     fake_x = models['Gyx'](clean_lr)
                     pseudo_clean_lr = models['Gxy'](fake_x)
@@ -280,35 +295,54 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     grid_fixed_hr = torchvision.utils.make_grid(
                         fixed_hr, normalize=False
                     )
-                    writer.add_image("HR source", interval_mapping(grid_fixed_hr, -1.0, 1.0, 0.0, 1.0),
+                    writer.add_image("HR source", interval_mapping(grid_fixed_lr, 
+                                                                   torch.min(fixed_hr), 
+                                                                   torch.min(fixed_hr),
+                                                                   0.0, 1.0), 
                                      global_step=tbord_step)
 
                     grid_clean_lr = torchvision.utils.make_grid(
                         clean_lr, normalize=False
                     )
-                    writer.add_image("Clean LR", interval_mapping(grid_clean_lr, -1.0, 1.0, 0.0, 1.0),
+                    
+                    writer.add_image("Clean LR", interval_mapping(grid_fixed_lr, 
+                                                                   torch.min(clean_lr), 
+                                                                   torch.min(clean_lr),
+                                                                   0.0, 1.0), 
                                      global_step=tbord_step)
 
                     grid_fake_x = torchvision.utils.make_grid(
                         fake_x, normalize=False
                     )
-                    writer.add_image("Fake x", interval_mapping(grid_fake_x, -1.0, 1.0, 0.0, 1.0),
+                    writer.add_image("Fake x", interval_mapping(grid_fixed_lr, 
+                                                                   torch.min(fake_x), 
+                                                                   torch.min(fake_x),
+                                                                   0.0, 1.0), 
                                      global_step=tbord_step)
-
+                    
                     grid_pseudo_clean_lr = torchvision.utils.make_grid(
                         pseudo_clean_lr, normalize=False
                     )
-                    writer.add_image("Pseudo-clean LR", interval_mapping(grid_pseudo_clean_lr, -1.0, 1.0, 0.0, 1.0),
+                    writer.add_image("Pseudo-clean LR", 
+                                     interval_mapping(grid_fixed_lr,        
+                                                      torch.min(pseudo_clean_lr), 
+                                                      torch.min(pseudo_clean_lr),
+                                                      0.0, 1.0), 
                                      global_step=tbord_step)
-
+                   
                     grid_upscale_y = torchvision.utils.make_grid(
                         upscale_y, normalize=False
                     )
-                    writer.add_image("Upscale y (HR source) ", interval_mapping(grid_upscale_y, -1.0, 1.0, 0.0, 1.0),
+                    writer.add_image("Upscale y (HR source)", 
+                                     interval_mapping(grid_fixed_lr, 
+                                                      torch.min(upscale_y), 
+                                                      torch.min(upscale_y),
+                                                      0.0, 1.0), 
                                      global_step=tbord_step)
-
-                    writer.add_scalar('Generator loss', generator_loss, global_step=tbord_step)
-                    writer.add_scalar('Discriminator loss', discriminator_loss, global_step=tbord_step)
+                    writer.add_scalar('Generator loss', generator_loss, 
+                                      global_step=tbord_step)
+                    writer.add_scalar('Discriminator loss', discriminator_loss, 
+                                      global_step=tbord_step)
 
                     writer.add_scalar('Cycle loss', L_cyc, global_step=tbord_step)
                     writer.add_scalar('Identity loss', L_idt, global_step=tbord_step)
