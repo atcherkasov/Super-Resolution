@@ -253,7 +253,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     )
                     writer.add_image("LR source", interval_mapping(grid_fixed_lr, 
                                                                    torch.min(fixed_lr), 
-                                                                   torch.min(fixed_lr),
+                                                                   torch.max(fixed_lr),
                                                                    0.0, 1.0), 
                                      global_step=tbord_step)
 
@@ -262,7 +262,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     )
                     writer.add_image("Fake y", interval_mapping(grid_fixed_lr, 
                                                                    torch.min(fake_y), 
-                                                                   torch.min(fake_y),
+                                                                   torch.max(fake_y),
                                                                    0.0, 1.0), 
                                      global_step=tbord_step)
                   
@@ -272,7 +272,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     writer.add_image("Upscale x (LR source)", 
                                      interval_mapping(grid_fixed_lr, 
                                                                    torch.min(upscale_x), 
-                                                                   torch.min(upscale_x),
+                                                                   torch.max(upscale_x),
                                                                    0.0, 1.0), 
                                      global_step=tbord_step)
                     
@@ -297,7 +297,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     )
                     writer.add_image("HR source", interval_mapping(grid_fixed_lr, 
                                                                    torch.min(fixed_hr), 
-                                                                   torch.min(fixed_hr),
+                                                                   torch.max(fixed_hr),
                                                                    0.0, 1.0), 
                                      global_step=tbord_step)
 
@@ -307,7 +307,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     
                     writer.add_image("Clean LR", interval_mapping(grid_fixed_lr, 
                                                                    torch.min(clean_lr), 
-                                                                   torch.min(clean_lr),
+                                                                   torch.max(clean_lr),
                                                                    0.0, 1.0), 
                                      global_step=tbord_step)
 
@@ -316,7 +316,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     )
                     writer.add_image("Fake x", interval_mapping(grid_fixed_lr, 
                                                                    torch.min(fake_x), 
-                                                                   torch.min(fake_x),
+                                                                   torch.max(fake_x),
                                                                    0.0, 1.0), 
                                      global_step=tbord_step)
                     
@@ -326,7 +326,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     writer.add_image("Pseudo-clean LR", 
                                      interval_mapping(grid_fixed_lr,        
                                                       torch.min(pseudo_clean_lr), 
-                                                      torch.min(pseudo_clean_lr),
+                                                      torch.max(pseudo_clean_lr),
                                                       0.0, 1.0), 
                                      global_step=tbord_step)
                    
@@ -336,7 +336,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
                     writer.add_image("Upscale y (HR source)", 
                                      interval_mapping(grid_fixed_lr, 
                                                       torch.min(upscale_y), 
-                                                      torch.min(upscale_y),
+                                                      torch.max(upscale_y),
                                                       0.0, 1.0), 
                                      global_step=tbord_step)
                     writer.add_scalar('Generator loss', generator_loss, 
@@ -464,16 +464,12 @@ if __name__ == '__main__':
 
     lr_val_transform = A.Compose([
         A.RandomCrop(width=LR_VAL_PATCH, height=LR_VAL_PATCH),
-        A.HorizontalFlip(),
-        A.RandomRotate90(),
         A.Normalize(mean=(0.5, 0.5, 0.5),
                     std=(0.5, 0.5, 0.5), p=1)
     ])
 
     hr_val_transform = A.Compose([
         A.RandomCrop(width=HR_VAL_PATCH, height=HR_VAL_PATCH),
-        A.HorizontalFlip(),
-        A.RandomRotate90(),
         A.Normalize(mean=(0.5, 0.5, 0.5),
                     std=(0.5, 0.5, 0.5), p=1)
     ])
