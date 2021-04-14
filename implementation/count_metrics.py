@@ -16,7 +16,6 @@ warnings.filterwarnings('ignore')
 from data import LRandHR
 from RCAN_models import RCAN
 from args import rcan_args
-from SSIM import msssim
 from train import interval_mapping
 
 
@@ -82,9 +81,9 @@ def dssim(img1, img2, max_val, filter_size=11, filter_sigma=1.5, k1=0.01, k2=0.0
 
 if __name__ == '__main__':
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    BATCH_SIZE=256
+    BATCH_SIZE=64
     LR_VAL_PATCH=200
-    HR_VAL_PATCH=400
+    HR_VAL_PATCH=800
 
     lr_val_transform = A.Compose([
             A.RandomCrop(width=LR_VAL_PATCH, height=LR_VAL_PATCH),
@@ -113,49 +112,54 @@ if __name__ == '__main__':
             
             
     path = '/cache/chat/experiments/'
-    exp_name = 'default_1'
-    number = 55
+#     exp_name = 'default_1'
+    number = 12
 
-    PATH = f'{path}{exp_name}/models'
+#     all_exps = ['default_1', 'no_cycle_0', 'no_geometric_0', 
+#                'no_identity_0', 'stochasticChannel_7', 'freezing_0']
+# x4default_2  x4no_cyc_0  x4no_geo_0  x4noIdentity_0  x4stochasticChannel_3
+    all_exps = ['x4default_2']
+    for exp_name in all_exps:
+        print()
+        print(exp_name)
+        PATH = f'{path}{exp_name}/models'
 
-    args_2 = rcan_args()
-    cleaner = RCAN(args_2)
-    cleaner.to(device)
-    checkpoint = torch.load(f"{PATH}/{number}_{'Gxy'}.pth")
-    cleaner.load_state_dict(checkpoint['model_state_dict'])
-    cleaner.eval()
+        args_2 = rcan_args()
+        cleaner = RCAN(args_2)
+        for param in cleaner.parameters():
+            param.requires_grad = False
+        cleaner.to(device)
+        checkpoint = torch.load(f"{PATH}/{number}_{'Gxy'}.pth")
+        cleaner.load_state_dict(checkpoint['model_state_dict'])
+        cleaner.eval()
 
-    for param in cleaner.parameters():
-        param.requires_grad = False
 
-    args_3 = rcan_args(n_resblocks=20, scale=[2])
-    upscaler = RCAN(args_3)
-    upscaler.to(device)
-    checkpoint = torch.load(f"{PATH}/{number}_{'Uyy'}.pth")
-    upscaler.load_state_dict(checkpoint['model_state_dict'])
-    upscaler.eval()
+        args_3 = rcan_args(n_resblocks=20, scale=[4])
+        upscaler = RCAN(args_3)
+        for param in upscaler.parameters():
+            param.requires_grad = False
+        upscaler.to(device)
+        checkpoint = torch.load(f"{PATH}/{number}_{'Uyy'}.pth")
+        upscaler.load_state_dict(checkpoint['model_state_dict'])
+        upscaler.eval()
 
-    for param in upscaler.parameters():
-        param.requires_grad = False
-        
-    downscaled = get_downscale(high_res, LR_VAL_PATCH)
-    upscaled = batch_inferense(downscaled, cleaner, upscaler)
-    
-    print(f'PSNR: {torch.mean(PSNR(high_res, upscaled)).item()}')
-#     res = []
-#     for number in range(upscaled.shape[0]):
-#         test = upscaled[number]
-#         test = test.permute(1, 2, 0).contiguous()
-#         test = np.array(test.to('cpu'))
+        downscaled = get_downscale(high_res, LR_VAL_PATCH)
+        upscaled = batch_inferense(downscaled, cleaner, upscaler)
 
-#         gr_truth = high_res[number]
-#         gr_truth = gr_truth.permute(1, 2, 0).contiguous()
-#         gr_truth = np.array(gr_truth.to('cpu'))
-        
-#         res.append(calculate_ssim(gr_truth, test))
-#     print(dssim(high_res, upscaled, 1).shape)
-    upscaled = interval_mapping(upscaled, torch.min(upscaled), torch.max(upscaled), 0, 1)
-    high_res = interval_mapping(high_res, torch.min(high_res), torch.max(high_res), 0, 1)
+        print(f'PSNR: {torch.mean(PSNR(high_res, upscaled)).item()}')
+    #     res = []
+    #     for number in range(upscaled.shape[0]):
+    #         test = upscaled[number]
+    #         test = test.permute(1, 2, 0).contiguous()
+    #         test = np.array(test.to('cpu'))
 
-    print(f'SSIM: {torch.mean(dssim(high_res, upscaled, 1))}')
-    
+    #         gr_truth = high_res[number]
+    #         gr_truth = gr_truth.permute(1, 2, 0).contiguous()
+    #         gr_truth = np.array(gr_truth.to('cpu'))
+
+    #         res.append(calculate_ssim(gr_truth, test))
+    #     print(dssim(high_res, upscaled, 1).shape)
+        upscaled = interval_mapping(upscaled, torch.min(upscaled), torch.max(upscaled), 0, 1)
+        high_res = interval_mapping(high_res, torch.min(high_res), torch.max(high_res), 0, 1)
+
+        print(f'SSIM: {torch.mean(dssim(high_res, upscaled, 1))}')
