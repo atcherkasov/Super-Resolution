@@ -71,7 +71,6 @@ def setting_dirs(argv):
         # so we will create brand new experiment
         exp_name = f'{exp_name}_{gen_experiment_num(glob_path, exp_name)}'
         config_name = argv[0].split('/')[-1]
-        
         os.mkdir(f'{glob_path}{exp_name}')
         os.mkdir(f'{glob_path}{exp_name}/runs')
         os.mkdir(f'{glob_path}{exp_name}/models')
@@ -113,7 +112,7 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
             if stochastic:
                 if stochastic['case'] == 1:
                     # add Gausse noise as 4th channel
-                    noise = torch.rand(stochastic['BATCH_SIZE'], 
+                    noise = torch.rand(clean_lr.shape[0], 
                                        1, 
                                        stochastic['LR_PATCH'],   
                                        stochastic['LR_PATCH'])
@@ -125,7 +124,6 @@ def train(models, train_dataloader, optimizers, coef, max_iter, fixed_batch,
 
             low_res = low_res.permute(0, 3, 1, 2).contiguous()
             high_res = high_res.permute(0, 3, 1, 2).contiguous()
-            clean_lr = clean_lr.to(device)
             low_res, high_res = low_res.to(device), high_res.to(device)
 
             ### running all generators
